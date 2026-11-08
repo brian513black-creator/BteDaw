@@ -1,0 +1,15 @@
+# Windows 11 release acceptance
+
+A cloud/Linux test pass or a Windows Server CI run does not establish Windows 11 hardware readiness. Before labelling a build a Windows 11 release, retain evidence of these checks on actual Windows 11 x64 machines.
+
+- Install the produced NSIS executable on a clean machine without development tools, start it from the Start menu, and uninstall it. Also run the portable ZIP as a standard user. Confirm dependency/source license material is present.
+- Verify startup at 100%, 125%, 150% and 200% display scaling, including a 1280×720 logical work area, multiple displays, native VST3 editors and window resizing.
+- Play and export the bundled example. Open the WAV in another audio application and confirm stereo audio, expected duration, 48 kHz / 24-bit encoding and headroom.
+- Select WASAPI input/output devices; record mono and stereo audio; stop, save, close, reopen and replay the take. Confirm Windows microphone permissions and vendor device drivers are correctly configured. Check device switching, sample rates, buffer sizes and disconnect/reconnect behavior.
+- Record a USB MIDI keyboard into 4OSC, check monitoring, edit notes, save/reopen, and render the result. Confirm notes release when stopping and switching sessions.
+- Exercise output cables, nested buses, post-fader sends, mono sum, pan, mute/solo, meters and sidechains. Attempts to form primary/send/sidechain feedback loops must be rejected.
+- Test several real Windows x64 VST3 instruments/effects with native editors, presets, sidechain inputs and reported latency. Save/reopen plugin state and compare live playback with mix/stem export. The automated fixture is insufficient as a compatibility matrix.
+- Test audio edits, undo/redo, gain staging, automation, portable session copies, autosave recovery and save/discard/cancel. Check missing media, corrupt sessions, unavailable plugins, full disks and read-only output folders.
+- Run long recording/playback sessions, increase track/plugin counts, monitor dropouts and CPU/memory use, and test cancellation of export without damaging a prior file. Retain sample rate, block size, device driver, CPU and plugin versions with performance results.
+
+ASIO, signing and plugin isolation are outstanding release work; the current artifact must not claim them. The installer is unsigned, and Windows may show its normal unrecognized-publisher prompt.

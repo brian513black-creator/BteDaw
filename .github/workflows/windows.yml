@@ -1,0 +1,71 @@
+name: Windows build and installer
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure Windows x64 with static C runtime
+        run: cmake -S . -B build -A x64 -DBTE_BUILD_APP=ON -DBUILD_TESTING=ON
+      - name: Build workstation and test VST3
+        run: cmake --build build --config Release --parallel 2
+      - name: Test recording, instruments, VST3, routing, automation and export
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Start the native Windows application
+        shell: pwsh
+        run: ./scripts/windows-smoke.ps1 -Executable 'build/BteDaw_artefacts/Release/BTE Studio.exe'
+      - name: Install NSIS packaging tool
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'C:/Program Files (x86)/NSIS/makensis.exe')) {
+            choco install nsis --no-progress --yes
+            if ($LASTEXITCODE -ne 0) { throw 'NSIS installation failed' }
+          }
+          'C:/Program Files (x86)/NSIS' | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Create Windows installer and portable archive
+        working-directory: build
+        run: |
+          cpack -C Release -G NSIS
+          cpack -C Release -G ZIP
+      - name: Verify silent install, installed app startup and uninstall
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem build -Filter '*.exe' | Where-Object Name -Like 'BTE*' | Select-Object -First 1
+          if (-not $setup) { throw 'Windows installer was not produced' }
+          $install = Start-Process $setup.FullName -ArgumentList '/S' -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw 'Silent installation failed' }
+          $app = Join-Path $env:ProgramFiles 'BTE Studio/BTE Studio.exe'
+          ./scripts/windows-smoke.ps1 -Executable $app
+          $remove = Start-Process (Join-Path $env:ProgramFiles 'BTE Studio/Uninstall.exe') -ArgumentList '/S' -Wait -PassThru
+          if ($remove.ExitCode -ne 0) { throw 'Silent uninstall failed' }
+      - name: Package corresponding application and dependency source
+        shell: pwsh
+        run: |
+          New-Item source-bundle -ItemType Directory | Out-Null
+          git archive HEAD -o source-bundle/BteDaw-source.zip
+          Copy-Item build/_deps/juce-src source-bundle/JUCE -Recurse
+          Copy-Item build/_deps/tracktion-src source-bundle/TracktionEngine -Recurse
+          Compress-Archive -Path source-bundle/* -DestinationPath build/BTE-Studio-corresponding-source.zip
+      - name: Write SHA-256 checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem build -File | Where-Object Extension -In '.exe','.zip' | ForEach-Object {
+            $hash = Get-FileHash $_.FullName -Algorithm SHA256
+            "$($hash.Hash.ToLower())  $($_.Name)"
+          } | Set-Content build/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BTE-Studio-Windows-x64
+          if-no-files-found: error
+          path: |
+            build/BTE*.exe
+            build/BTE*.zip
+            build/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Windows-test-results
+          path: build/Testing/Temporary/

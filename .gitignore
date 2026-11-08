@@ -1,0 +1,7 @@
+/build*/
+/.vs/
+*.user
+*.btedaw
+*.wav
+*.vst3
+*.bte
