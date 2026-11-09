@@ -1687,17 +1687,122 @@ void ProStudio::showAudio()
     session.stop();
     auto* c =
         new juce::AudioDeviceSelectorComponent(session.audioDevices(), 0, 64, 0, 64, true, true, true, false);
-    struct AudioPanel : juce::Component
+    struct AudioPanel final : juce::Component, private juce::Timer
     {
-        ~AudioPanel() override
+        Workstation& ws;
+        juce::Viewport devices;
+        juce::Label reported, sourceLabel, offsetLabel, help, feedback;
+        juce::ComboBox source;
+        juce::Slider offset;
+        juce::TextButton small{"Use small supported buffer"}, reset{"Reset correction"};
+        std::vector<RecordingSource> sources;
+        explicit AudioPanel(Workstation& workstation, juce::AudioDeviceSelectorComponent* selector)
+            : ws(workstation)
         {
-            deleteAllChildren();
+            setSize(720, 650);
+            for (auto* child :
+                 std::initializer_list<juce::Component*>{&devices, &reported, &sourceLabel, &offsetLabel,
+                                                         &help, &feedback, &source, &offset, &small, &reset})
+                addAndMakeVisible(child);
+            reported.setBounds(12, 40, 696, 80);
+            reported.setJustificationType(juce::Justification::topLeft);
+            devices.setBounds(12, 126, 696, 300);
+            selector->setSize(676, 500);
+            devices.setViewedComponent(selector, true);
+            small.setBounds(12, 438, 306, 28);
+            reset.setBounds(330, 438, 180, 28);
+            sourceLabel.setText("Recording input", juce::dontSendNotification);
+            sourceLabel.setBounds(12, 476, 150, 26);
+            source.setBounds(175, 476, 533, 26);
+            offsetLabel.setText("Correction (ms, + moves take earlier)", juce::dontSendNotification);
+            offsetLabel.setBounds(12, 510, 280, 26);
+            offset.setRange(-500, 500, .001);
+            offset.setTextBoxStyle(juce::Slider::TextBoxRight, false, 100, 26);
+            offset.setBounds(300, 510, 408, 26);
+            help.setBounds(12, 546, 696, 60);
+            help.setJustificationType(juce::Justification::topLeft);
+            help.setText("Correction aligns recorded takes; it does not reduce monitoring delay. For Apollo, "
+                         "use UAD Console monitoring and turn the track's I button off. Driver figures are "
+                         "reported values; measure actual hardware delay with a loopback test.",
+                         juce::dontSendNotification);
+            feedback.setBounds(12, 608, 696, 34);
+            source.onChange = [this]
+            {
+                int i = source.getSelectedId() - 1;
+                if (juce::isPositiveAndBelow(i, static_cast<int>(sources.size())))
+                    offset.setValue(sources[static_cast<size_t>(i)].correctionMs, juce::dontSendNotification);
+            };
+            offset.onValueChange = [this]
+            {
+                int i = source.getSelectedId() - 1;
+                if (!juce::isPositiveAndBelow(i, static_cast<int>(sources.size())))
+                    return;
+                auto r = ws.setRecordingCorrection(sources[static_cast<size_t>(i)].id, offset.getValue());
+                feedback.setText(r.wasOk() ? ws.status : r.getErrorMessage(), juce::dontSendNotification);
+            };
+            reset.onClick = [this] { offset.setValue(0, juce::sendNotification); };
+            small.onClick = [this]
+            {
+                auto r = ws.useSmallBuffer();
+                feedback.setText(r.wasOk() ? ws.status : r.getErrorMessage(), juce::dontSendNotification);
+                timerCallback();
+            };
+            timerCallback();
+            startTimerHz(2);
+        }
+        void timerCallback() override
+        {
+            auto l = ws.latency();
+            if (!l.available)
+                reported.setText("Select an audio device to see driver-reported latency. For Apollo on "
+                                 "Windows, select ASIO and Universal Audio's driver.",
+                                 juce::dontSendNotification);
+            else
+                reported.setText(l.driver + " / " + l.device + " / " + juce::String(l.sampleRate, 0) +
+                                     " Hz / " + juce::String(l.bufferSamples) + " frames (" +
+                                     juce::String(l.milliseconds(l.bufferSamples), 2) +
+                                     " ms buffer period)\nDriver input: " +
+                                     juce::String(l.milliseconds(l.inputSamples), 2) + " ms / output: " +
+                                     juce::String(l.milliseconds(l.outputSamples), 2) + " ms / sum: " +
+                                     juce::String(l.milliseconds(l.inputSamples + l.outputSamples), 2) +
+                                     " ms\nGraph compensation: " +
+                                     (l.graphKnown ? juce::String(l.milliseconds(l.graphSamples), 2) + " ms"
+                                                   : "inactive") +
+                                     " / Measured physical round trip: not measured",
+                                 juce::dontSendNotification);
+            auto latest = ws.recordingSources();
+            bool changed = latest.size() != sources.size();
+            if (!changed)
+                for (size_t i = 0; i < latest.size(); ++i)
+                    changed = changed || latest[i].id != sources[i].id || latest[i].name != sources[i].name;
+            auto current = source.getSelectedId() - 1;
+            juce::String id = juce::isPositiveAndBelow(current, static_cast<int>(sources.size()))
+                                  ? sources[static_cast<size_t>(current)].id
+                                  : juce::String{};
+            sources = std::move(latest);
+            if (changed)
+            {
+                source.clear(juce::dontSendNotification);
+                int selected = 1;
+                for (size_t i = 0; i < sources.size(); ++i)
+                {
+                    source.addItem(sources[i].name, static_cast<int>(i) + 1);
+                    if (sources[i].id == id)
+                        selected = static_cast<int>(i) + 1;
+                }
+                if (!sources.empty())
+                    source.setSelectedId(selected, juce::sendNotification);
+            }
+            current = source.getSelectedId() - 1;
+            offset.setEnabled(!sources.empty());
+            reset.setEnabled(!sources.empty());
+            if (!offset.isMouseButtonDown() && !offset.hasKeyboardFocus(true) &&
+                juce::isPositiveAndBelow(current, static_cast<int>(sources.size())))
+                offset.setValue(sources[static_cast<size_t>(current)].correctionMs,
+                                juce::dontSendNotification);
         }
     };
-    auto* panelContent = new AudioPanel;
-    panelContent->setSize(660, 540);
-    c->setBounds(0, 40, 660, 500);
-    panelContent->addAndMakeVisible(c);
+    auto* panelContent = new AudioPanel(session, c);
     for (int channels : {1, 2})
     {
         auto* button =
@@ -1716,7 +1821,7 @@ void ProStudio::showAudio()
         };
     }
     juce::DialogWindow::LaunchOptions o;
-    o.dialogTitle = "Windows audio and MIDI / WASAPI";
+    o.dialogTitle = "Audio / ASIO, WASAPI and recording latency";
     o.dialogBackgroundColour = panel;
     o.useNativeTitleBar = true;
     o.content.setOwned(panelContent);

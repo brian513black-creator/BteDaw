@@ -29,14 +29,14 @@ if(BTE_BUILD_APP)
     FetchContent_Declare(tracktion URL https://codeload.github.com/Tracktion/tracktion_engine/tar.gz/b0c7dd090a56b27fe01bb394617891906eb34daf
         URL_HASH SHA256=2b1ba6aeb1dd1d3a1a7f900a90690c75c90e4acc943842c2daa3d4d8e9ac7183)
     FetchContent_MakeAvailable(tracktion)
-    add_library(BteEngine STATIC Source/ProEngine.cpp Source/WorkflowTools.cpp)
+    add_library(BteEngine STATIC Source/ProEngine.cpp Source/WorkflowTools.cpp Source/Latency.cpp)
     target_include_directories(BteEngine PUBLIC Source "${tracktion_SOURCE_DIR}/modules" "${juce_SOURCE_DIR}/modules")
     target_compile_definitions(BteEngine PUBLIC JUCE_PLUGINHOST_VST3=1 JUCE_PLUGINHOST_VST=0
         JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_DISPLAY_SPLASH_SCREEN=0
         JUCE_REPORT_APP_USAGE=0 JUCE_MODAL_LOOPS_PERMITTED=1 JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
         TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=1 TRACKTION_ENABLE_ARA=0
         TRACKTION_ENABLE_REWIRE=0 TRACKTION_ENABLE_CONTROL_SURFACES=0)
-    target_compile_definitions(BteEngine PUBLIC "$<$<CONFIG:Debug>:DEBUG=1;_DEBUG=1>")
+    target_compile_definitions(BteEngine PUBLIC "$<$<CONFIG:Debug>:DEBUG=1;_DEBUG=1>" "$<$<PLATFORM_ID:Windows>:JUCE_ASIO=1>")
     target_link_libraries(BteEngine PRIVATE tracktion::tracktion_engine
         tracktion::tracktion_graph tracktion::tracktion_core juce::juce_audio_utils)
     if(UNIX AND NOT APPLE)
@@ -46,6 +46,11 @@ if(BTE_BUILD_APP)
     target_sources(BteDaw PRIVATE Source/Main.cpp Source/ProStudio.cpp Source/WorkflowUI.cpp)
     target_link_libraries(BteDaw PRIVATE BteEngine)
     if(BUILD_TESTING)
+        juce_add_console_app(bte_latency_tests PRODUCT_NAME "BTE latency tests")
+        target_sources(bte_latency_tests PRIVATE tests/LatencyTests.cpp)
+        target_link_libraries(bte_latency_tests PRIVATE BteEngine)
+        add_test(NAME recording_latency COMMAND bte_latency_tests)
+        set_tests_properties(recording_latency PROPERTIES TIMEOUT 180)
         juce_add_console_app(bte_stress_tests PRODUCT_NAME "BTE stress tests")
         target_sources(bte_stress_tests PRIVATE tests/StressTests.cpp)
         target_link_libraries(bte_stress_tests PRIVATE BteEngine)

@@ -48,6 +48,22 @@ struct ExportSettings
     float targetLufs = -14;
     double tailSeconds = 2;
 };
+struct AudioLatency
+{
+    bool available = false, graphKnown = false;
+    juce::String device, driver;
+    double sampleRate = 0;
+    int bufferSamples = 0, inputSamples = 0, outputSamples = 0, graphSamples = 0;
+    double milliseconds(int samples) const
+    {
+        return sampleRate > 0 ? 1000.0 * samples / sampleRate : 0;
+    }
+};
+struct RecordingSource
+{
+    juce::String id, name;
+    double correctionMs = 0;
+};
 class Workstation
 {
   public:
@@ -80,6 +96,10 @@ class Workstation
     juce::Result record();
     juce::StringArray inputs() const;
     void configureInputs();
+    AudioLatency latency() const;
+    juce::Result useSmallBuffer();
+    std::vector<RecordingSource> recordingSources() const;
+    juce::Result setRecordingCorrection(const juce::String& deviceID, double milliseconds);
     juce::Result assignInput(int track, int device, bool armed);
     bool armed(int) const;
     double bpm() const;

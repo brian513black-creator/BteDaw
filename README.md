@@ -12,7 +12,7 @@ Open [Windows build and installer](https://github.com/brian513black-creator/BteD
 - Or extract the portable ZIP and run `BTE Studio.exe`.
 - The executable uses a static Microsoft C runtime. End users do not need Visual Studio, CMake, JUCE, an API key, or a separate sound library.
 - The built-in 4OSC synth, original BTE percussion synth, and stock effects work offline. Third-party VST3 plugins remain separate installations.
-- Select **Audio** to choose your WASAPI output, input channels, sample rate, buffer size and MIDI devices. Its input-grouping buttons choose separate mono sources or stereo pairs; reselect track inputs after changing grouping. Hardware drivers and Windows microphone permissions remain system settings. ASIO is not included in this build.
+- Select **Audio** to choose your ASIO/WASAPI output, input channels, sample rate, buffer size and MIDI devices. Its input-grouping buttons choose separate mono sources or stereo pairs; reselect track inputs after changing grouping. Hardware drivers and Windows microphone permissions remain system settings. Windows builds now enable ASIO alongside WASAPI; driver/hardware compatibility still requires Windows acceptance testing.
 
 The installer is unsigned. The workflow builds the app and test VST3, tests the engine, starts the native application, packages NSIS/portable outputs, and checks silent installation, installed-app startup, and uninstallation. It also uploads corresponding source and SHA-256 checksums. It does not publish a GitHub release.
 
@@ -107,12 +107,16 @@ cpack --config build/CPackConfig.cmake -C Release -G ZIP
 
 `BTE_VALIDATE_LINUX=ON` enables a development-only native build using ALSA, X11 and font development headers. It is not a supported Linux distribution target and cannot establish Windows hardware compatibility. See [validation](docs/VALIDATION.md), [Windows acceptance checks](docs/WINDOWS_ACCEPTANCE.md), and [dependency licenses](docs/THIRD_PARTY.md).
 
+## Low-latency recording
+
+The **Audio** window offers a small supported buffer, driver/graph latency readouts and per-input recording-alignment correction. See [recording latency](docs/RECORDING_LATENCY.md) for Apollo Console monitoring, generic Windows drivers, calibration and the difference between aligned takes and physical monitoring delay. No universal zero-latency guarantee is made.
+
 ## Stress testing
 
 See [stress testing](docs/STRESS_TESTING.md) for the large-session workload and repeatable Windows commands. It checks rendered samples, dense MIDI editing/undo, nested routes/sends/sidechains, repeated save/reload/recovery, generated callback timing at four rate/buffer settings and eight-track disk recording. Integrity and compute-deadline results are reported separately. This synthetic test does not establish Windows driver readiness.
 
 ## Remaining release work
 
-Real Windows 11 interface/driver testing, long-session performance and stress tests, ASIO support, code signing, plugin scan/crash isolation, take comping, full automation-lane controls, advanced warp/crossfade editing, broader MIDI/expression workflows, and LLM/generative AI are outstanding. The current app has a working core production workflow; it is not certified as a professional release and should not be described as having every feature of an established commercial DAW.
+Real Windows 11 interface/driver and ASIO acceptance testing, multi-hour performance/stress tests, code signing, plugin scan/crash isolation, take comping, full automation-lane controls, advanced warp/crossfade editing, broader MIDI/expression workflows, and LLM/generative AI are outstanding. The current app has a working core production workflow; it is not certified as a professional release and should not be described as having every feature of an established commercial DAW.
 
 The repository's GPL-3.0 license covers BTE source. JUCE and Tracktion retain their own licenses. The Windows artifact includes dependency notices and corresponding source; see THIRD_PARTY.md before distribution.

@@ -6,3 +6,5 @@ JUCE: https://github.com/juce-framework/JUCE
 Tracktion Engine: https://github.com/Tracktion/tracktion_engine
 
 Redistributors must include the applicable dependency licenses and corresponding source as required by the selected licenses. A commercial/private-source product needs appropriate licenses from the relevant copyright holders. The repository's LICENSE applies to BTE's own source.
+
+Windows ASIO support uses the ASIO headers bundled with the pinned JUCE checkout (`modules/juce_audio_devices/native/asio`). Those Steinberg headers offer GPLv3 as an alternative to the proprietary Steinberg ASIO license; BTE uses the GPLv3 option. Their original LICENSE.txt is included by the installer license-copy rules and the full corresponding source bundle. No Universal Audio driver, Console application, firmware or commercial UAD plugin is redistributed.
