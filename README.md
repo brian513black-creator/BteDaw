@@ -113,7 +113,7 @@ The **Audio** window offers a small supported buffer, driver/graph latency reado
 
 ## Stress testing
 
-See [stress testing](docs/STRESS_TESTING.md) for the large-session workload and repeatable Windows commands. It checks rendered samples, dense MIDI editing/undo, nested routes/sends/sidechains, repeated save/reload/recovery, generated callback timing at four rate/buffer settings and eight-track disk recording. Integrity and compute-deadline results are reported separately. This synthetic test does not establish Windows driver readiness.
+Read the [measured stress and latency results](docs/STRESS_RESULTS.md). See [stress testing](docs/STRESS_TESTING.md) for the large-session workload and repeatable Windows commands. It checks rendered samples, dense MIDI editing/undo, nested routes/sends/sidechains, repeated save/reload/recovery, generated callback timing at four rate/buffer settings and eight-track disk recording. Integrity and compute-deadline results are reported separately. This synthetic test does not establish Windows driver readiness.
 
 ## Remaining release work
 

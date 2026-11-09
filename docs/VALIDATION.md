@@ -49,4 +49,8 @@ The Windows x64 workflow builds with a static Microsoft C runtime, runs the same
 
 That workflow is configured in source; its successful execution is not established by this local report. GitHub Actions metadata could not be read from the cloud environment: the API connection was denied (403), and the Actions website returned 503. A Git push can be verified separately through the existing Git proxy, but that does not establish CI success or artifact availability.
 
-Actual Windows 11 hardware acceptance, signing, ASIO, plugin isolation and the remaining product work are documented in [WINDOWS_ACCEPTANCE.md](WINDOWS_ACCEPTANCE.md) and the README. The application must not be advertised as a fully tested professional Windows release based on these Linux checks. No environment configuration was republished.
+Actual Windows 11 hardware acceptance, signing, ASIO driver acceptance, plugin isolation and the remaining product work are documented in [WINDOWS_ACCEPTANCE.md](WINDOWS_ACCEPTANCE.md) and the README. The application must not be advertised as a fully tested professional Windows release based on these Linux checks. No environment configuration was republished.
+
+## Stress and latency follow-up — 2026-11-09
+
+The expanded Debug run passed five suites (663 checks), and an independent 80-case recording-latency run passed 1,140 checks. The compensated generated loopbacks aligned at zero samples; this is not physical zero latency. The large Release workload passed integrity but exceeded small-buffer compute budgets and showed unresolved resident-memory growth during reloads. Exact workload, timings, limitations, source commits and raw reports are in [STRESS_RESULTS.md](STRESS_RESULTS.md). Windows ASIO is enabled in source, with actual Windows/Apollo acceptance still pending.
