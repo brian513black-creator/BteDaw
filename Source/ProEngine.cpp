@@ -607,24 +607,49 @@ juce::Result Workstation::send(int from, int to, float db)
     auto* d = track(to);
     if (!s || !d || wouldFeedback(from, to))
         return fail("Choose a different destination without feedback");
-    begin("Create post-fader send");
+    const auto limit = engine.getEngineBehaviour().getEditLimits().maxPluginsOnTrack;
+    if (s->pluginList.size() >= limit)
+        return fail("Source channel insert limit reached (including channel utilities and sends)");
     int bus = static_cast<int>(d->state.getProperty("BTE_aux", -1));
+    const bool needsReturn = bus < 0;
+    if (needsReturn && d->pluginList.size() >= limit)
+        return fail("Destination channel has no room for an auxiliary return");
     if (bus < 0)
     {
         bus = static_cast<int>(edit->state.getProperty("BTE_nextAux", 0));
         if (bus >= 32)
             return fail("32 auxiliary buses already in use");
-        edit->state.setProperty("BTE_nextAux", bus + 1, &edit->getUndoManager());
-        d->state.setProperty("BTE_aux", bus, &edit->getUndoManager());
-        auto p = edit->getPluginCache().createNewPlugin(te::AuxReturnPlugin::xmlTypeName, {});
-        dynamic_cast<te::AuxReturnPlugin*>(p.get())->busNumber = bus;
-        d->pluginList.insertPlugin(p, 0, nullptr);
     }
-    auto p = edit->getPluginCache().createNewPlugin(te::AuxSendPlugin::xmlTypeName, {});
-    auto* aux = dynamic_cast<te::AuxSendPlugin*>(p.get());
+    // Create and validate both inserts before reserving a bus number.
+    auto sendPlugin = edit->getPluginCache().createNewPlugin(te::AuxSendPlugin::xmlTypeName, {});
+    auto* aux = dynamic_cast<te::AuxSendPlugin*>(sendPlugin.get());
+    if (!aux)
+        return fail("Could not create auxiliary send");
     aux->busNumber = bus;
     aux->setGainDb(db);
-    s->pluginList.insertPlugin(p, s->pluginList.size() - 1, nullptr);
+    te::Plugin::Ptr returnPlugin;
+    if (needsReturn)
+    {
+        returnPlugin = edit->getPluginCache().createNewPlugin(te::AuxReturnPlugin::xmlTypeName, {});
+        auto* ret = dynamic_cast<te::AuxReturnPlugin*>(returnPlugin.get());
+        if (!ret)
+            return fail("Could not create auxiliary return");
+        ret->busNumber = bus;
+    }
+    begin("Create post-fader send");
+    if (returnPlugin && !d->pluginList.insertPlugin(returnPlugin->state, 0))
+        return fail("Auxiliary return could not be inserted");
+    if (!s->pluginList.insertPlugin(sendPlugin->state, s->pluginList.size() - 1))
+    {
+        if (returnPlugin)
+            returnPlugin->deleteFromParent();
+        return fail("Auxiliary send could not be inserted");
+    }
+    if (needsReturn)
+    {
+        edit->state.setProperty("BTE_nextAux", bus + 1, &edit->getUndoManager());
+        d->state.setProperty("BTE_aux", bus, &edit->getUndoManager());
+    }
     return juce::Result::ok();
 }
 juce::Result Workstation::sidechain(int source, int dest, int insert)
@@ -661,22 +686,33 @@ te::Plugin::Ptr Workstation::addEffect(int index, const juce::String& type)
     auto* t = track(index);
     if (!t)
         return {};
+    if (t->pluginList.size() >= engine.getEngineBehaviour().getEditLimits().maxPluginsOnTrack)
+    {
+        status = "Channel insert limit reached (including channel utilities and sends)";
+        return {};
+    }
     begin("Insert effect");
     auto p = edit->getPluginCache().createNewPlugin(type, {});
-    if (p)
-        t->pluginList.insertPlugin(
-            p,
-            (type == te::FourOscPlugin::xmlTypeName || type == DrumMachine::xmlTypeName)
-                ? 0
-                : std::max(0, t->pluginList.size() - 2),
-            nullptr);
-    return p;
+    if (!p)
+    {
+        status = "Could not create the requested insert";
+        return {};
+    }
+    auto inserted = t->pluginList.insertPlugin(
+        p->state, (type == te::FourOscPlugin::xmlTypeName || type == DrumMachine::xmlTypeName)
+                      ? 0
+                      : std::max(0, t->pluginList.size() - 2));
+    if (!inserted)
+        status = "Plugin could not be inserted into this channel";
+    return inserted;
 }
 juce::Result Workstation::loadVst(int index, const juce::File& file)
 {
     auto* t = track(index);
     if (!t)
         return fail("Select a channel first");
+    if (t->pluginList.size() >= engine.getEngineBehaviour().getEditLimits().maxPluginsOnTrack)
+        return fail("Channel insert limit reached (including channel utilities and sends)");
     auto& manager = engine.getPluginManager();
     juce::OwnedArray<juce::PluginDescription> found;
     for (auto* format : manager.pluginFormatManager.getFormats())
@@ -691,8 +727,9 @@ juce::Result Workstation::loadVst(int index, const juce::File& file)
     auto p = edit->getPluginCache().createNewPlugin(te::ExternalPlugin::xmlTypeName, *found[0]);
     if (!p)
         return fail("Plugin could not be instantiated");
-    t->pluginList.insertPlugin(p, found[0]->isInstrument ? 0 : std::max(0, t->pluginList.size() - 2),
-                               nullptr);
+    if (!t->pluginList.insertPlugin(p->state,
+                                    found[0]->isInstrument ? 0 : std::max(0, t->pluginList.size() - 2)))
+        return fail("VST3 could not be inserted into this channel");
     return juce::Result::ok();
 }
 std::vector<te::Plugin*> Workstation::inserts(int index) const

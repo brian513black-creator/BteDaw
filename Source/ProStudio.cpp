@@ -1342,7 +1342,8 @@ void ProStudio::mouseDoubleClick(const juce::MouseEvent& e)
                     return;
                 }
             }
-            session.addEffect(selectedTrack, Workstation::effectTypes()[effect]);
+            if (!session.addEffect(selectedTrack, Workstation::effectTypes()[effect]))
+                message.setText(session.status, juce::dontSendNotification);
             refresh();
         }
         return;
@@ -1645,15 +1646,17 @@ void ProStudio::insertMenu()
     juce::PopupMenu m;
     for (int i = 0; i < Workstation::effectNames().size(); ++i)
         m.addItem(i + 1, Workstation::effectNames()[i]);
-    m.showMenuAsync(juce::PopupMenu::Options{}.withTargetComponent(&addInsert),
-                    [safe = juce::Component::SafePointer<ProStudio>(this)](int id)
-                    {
-                        if (safe && id > 0)
-                        {
-                            safe->session.addEffect(safe->selectedTrack, Workstation::effectTypes()[id - 1]);
-                            safe->refresh();
-                        }
-                    });
+    m.showMenuAsync(
+        juce::PopupMenu::Options{}.withTargetComponent(&addInsert),
+        [safe = juce::Component::SafePointer<ProStudio>(this)](int id)
+        {
+            if (safe && id > 0)
+            {
+                if (!safe->session.addEffect(safe->selectedTrack, Workstation::effectTypes()[id - 1]))
+                    safe->message.setText(safe->session.status, juce::dontSendNotification);
+                safe->refresh();
+            }
+        });
 }
 void ProStudio::showPlugin(int which)
 {

@@ -30,3 +30,5 @@ The job verifies a desktop Windows 11 build (not Windows Server), the interactiv
 If the job stays **Queued**, confirm the runner is **Idle** and has the exact `windows11-daw` label. If preflight fails, its log names the missing prerequisite. Stop the runner with Ctrl+C when testing is finished; start `.\run.cmd` again to reconnect it.
 
 A green run establishes the automated checks on that Windows 11 machine. Finish and record [Windows acceptance](WINDOWS_ACCEPTANCE.md), including installation, physical recording/MIDI, third-party plugins and long-session tests, before calling it a validated professional release.
+
+The manual workflow now includes bounded CTest stress coverage and a larger generated-audio workload. Set `stress_seconds` when starting it; reports are included in the validation-evidence artifact. Read [STRESS_TESTING.md](STRESS_TESTING.md) to distinguish integrity results from callback timing and physical audio tests.

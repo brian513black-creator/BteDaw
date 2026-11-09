@@ -12,6 +12,12 @@ struct HostBehaviour : te::EngineBehaviour
     {
         return enableAudio;
     }
+    // Zero preserves the engine default. The stress harness sets an explicit CPU budget.
+    int audioCpuLimit = 0;
+    int getNumberOfCPUsToUseForAudio() override
+    {
+        return audioCpuLimit > 0 ? audioCpuLimit : te::EngineBehaviour::getNumberOfCPUsToUseForAudio();
+    }
     bool enableAudio;
 };
 struct RegionSettings

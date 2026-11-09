@@ -3,6 +3,12 @@ name: Windows 11 validation
 # This job executes on a user-owned PC. It must never run automatically for PRs.
 on:
   workflow_dispatch:
+    inputs:
+      stress_seconds:
+        description: 'Total generated playback duration across four buffer/rate profiles (4-3600 seconds)'
+        required: true
+        default: '120'
+        type: string
 
 permissions:
   contents: read
@@ -27,11 +33,17 @@ jobs:
           $report = Get-Content reports/windows11/windows11-preflight.json -Raw | ConvertFrom-Json
           $report.buildTools.nsisDirectory | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Configure Windows x64
-        run: cmake -S . -B build-win11 -A x64 -DBTE_BUILD_APP=ON -DBUILD_TESTING=ON
+        run: cmake -S . -B build-win11 -A x64 -DBTE_BUILD_APP=ON -DBUILD_TESTING=ON -DBTE_ENABLE_STRESS_TESTS=ON
       - name: Build application and VST3 test fixture
         run: cmake --build build-win11 --config Release --parallel 2
       - name: Run automated engine and workstation checks on Windows 11
         run: ctest --test-dir build-win11 -C Release --output-on-failure
+      - name: Run large-session stress workload (generated audio, no physical devices)
+        env:
+          BTE_STRESS_SECONDS: ${{ inputs.stress_seconds }}
+        run: |
+          & './build-win11/bte_stress_tests_artefacts/Release/bte_stress_tests.exe' --vst "$PWD/build-win11/BteTestEffect_artefacts/Release/VST3/BTE Test Effect.vst3" --report "$PWD/reports/windows11/stress-soak.json" --tracks 128 --notes 2048 --cycles 20 --edits 1000 --seconds $env:BTE_STRESS_SECONDS --record-seconds 30 --threads 4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Check native application startup and clean shutdown
         run: ./scripts/windows-smoke.ps1 -Executable 'build-win11/BteDaw_artefacts/Release/BTE Studio.exe'
       - name: Package installer and portable application
@@ -71,4 +83,5 @@ jobs:
           name: Windows11-validation-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             reports/windows11/
+            build-win11/reports/
             build-win11/Testing/Temporary/

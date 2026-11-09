@@ -51,6 +51,7 @@ The [DAW workflow research](docs/DAW_RESEARCH.md) compares accessible official A
 
 - Each channel has a smoothed **-60 to +24 dB input trim**, channel fader, pan/balance, mono fold, mute/solo, output routing, inserts and meters. Mono fold is `(L + R) / 2` before trim and inserts. Stereo Out has its own fader and mono-sum switch.
 - Drag the small output jack in a track header onto another track to route its output there. Drop on the Stereo Out mixer strip to return to Master. The inspector's Output menu does the same thing. Buses can feed other buses.
+- Channel chains currently allow 16 plugin instances, including internal utilities and sends; the session supports 32 auxiliary bus numbers. Full channels reject new inserts/sends with a message.
 - **+ Send** adds a post-fader auxiliary send and a return on the chosen destination. Its level is editable through the send's parameter editor. Sends keep the main route in parallel. Primary routes, sends and sidechains are checked together for feedback cycles.
 - Choose an insert, choose a sidechain source, then **Connect SC**. The effect must expose a sidechain input. The plugin may also require its own external-sidechain mode.
 - Double-click a library item to insert a built-in effect/instrument. **Browse VST3** loads a trusted 64-bit VST3 bundle. A bundle's first discovered class is loaded; all discovered classes are retained in the engine's known-plugin list.
@@ -105,6 +106,10 @@ cpack --config build/CPackConfig.cmake -C Release -G ZIP
 ```
 
 `BTE_VALIDATE_LINUX=ON` enables a development-only native build using ALSA, X11 and font development headers. It is not a supported Linux distribution target and cannot establish Windows hardware compatibility. See [validation](docs/VALIDATION.md), [Windows acceptance checks](docs/WINDOWS_ACCEPTANCE.md), and [dependency licenses](docs/THIRD_PARTY.md).
+
+## Stress testing
+
+See [stress testing](docs/STRESS_TESTING.md) for the large-session workload and repeatable Windows commands. It checks rendered samples, dense MIDI editing/undo, nested routes/sends/sidechains, repeated save/reload/recovery, generated callback timing at four rate/buffer settings and eight-track disk recording. Integrity and compute-deadline results are reported separately. This synthetic test does not establish Windows driver readiness.
 
 ## Remaining release work
 

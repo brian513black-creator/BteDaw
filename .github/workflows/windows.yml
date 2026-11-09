@@ -9,11 +9,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Configure Windows x64 with static C runtime
-        run: cmake -S . -B build -A x64 -DBTE_BUILD_APP=ON -DBUILD_TESTING=ON
+        run: cmake -S . -B build -A x64 -DBTE_BUILD_APP=ON -DBUILD_TESTING=ON -DBTE_ENABLE_STRESS_TESTS=ON
       - name: Build workstation and test VST3
         run: cmake --build build --config Release --parallel 2
       - name: Test recording, instruments, VST3, routing, automation and export
         run: ctest --test-dir build -C Release --output-on-failure
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Windows-engine-and-stress-evidence
+          path: |
+            build/reports/
+            build/Testing/Temporary/
       - name: Start the native Windows application
         shell: pwsh
         run: ./scripts/windows-smoke.ps1 -Executable 'build/BteDaw_artefacts/Release/BTE Studio.exe'
