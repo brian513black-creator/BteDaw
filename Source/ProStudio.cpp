@@ -417,6 +417,25 @@ ProStudio::ProStudio()
     snap.addItem("Snap off", 4);
     snap.setSelectedId(2);
     snap.setTooltip("Grid quantization for clip/note edits");
+    for (auto* button : {&regionTools, &midiTools, &transportTools})
+        addAndMakeVisible(button);
+    regionTools.onClick = [this] { workflowMenu(104); };
+    midiTools.onClick = [this] { workflowMenu(105); };
+    transportTools.onClick = [this] { workflowMenu(106); };
+    addAndMakeVisible(velocity);
+    velocity.setRange(1, 127, 1);
+    velocity.setValue(96);
+    velocity.setTextBoxStyle(juce::Slider::TextBoxRight, false, 42, 20);
+    velocity.setTooltip("Selected note velocity / Default velocity for newly drawn notes");
+    velocity.onDragStart = [this] { session.begin("Edit note velocity"); };
+    velocity.onValueChange = [this]
+    {
+        noteVelocity = static_cast<int>(velocity.getValue());
+        if (auto* midi = dynamic_cast<te::MidiClip*>(selectedClip.get()))
+            if (auto* note = midi->getSequence().getNoteFor(selectedNoteState))
+                note->setVelocity(noteVelocity, &session.edit->getUndoManager());
+        repaint();
+    };
     horizontal.addListener(this);
     session.beforeSessionChange = [this] { clearSessionViews(); };
     session.edit->getTransport().ensureContextAllocated();
@@ -440,6 +459,10 @@ ProStudio::~ProStudio()
 }
 void ProStudio::clearSessionViews()
 {
+    for (auto* window : {&regionWindow, &midiWindow, &exportWindow, &transportWindow})
+        if (*window)
+            delete window->getComponent();
+    selectedNoteState = juce::ValueTree{};
     selectedClip = nullptr;
     draggedNote = nullptr;
     pluginWindow.reset();
@@ -570,6 +593,7 @@ void ProStudio::select(int index, te::Clip* clip)
 {
     selectedTrack = index;
     selectedClip = clip;
+    selectedNoteState = juce::ValueTree{};
     draggedNote = nullptr;
     if (auto* midi = dynamic_cast<te::MidiClip*>(clip))
         noteBase = std::clamp(midi->getSequence().getNoteNumberRange().getStart() - 2, 0, 104);
@@ -590,6 +614,9 @@ void ProStudio::resized()
         buttons[i]->setBounds(tx, 43, i == 9 ? 58 : 52, 29);
         tx += i == 9 ? 64 : 58;
     }
+    regionTools.setBounds(444, 5, 64, 22);
+    midiTools.setBounds(512, 5, 64, 22);
+    transportTools.setBounds(580, 5, 88, 22);
     tempo.setBounds(760, 37, 78, 25);
     bool wide = getWidth() >= 1450;
     int x = 222;
@@ -640,6 +667,8 @@ void ProStudio::resized()
         masterStrip->setBounds(getWidth() - 102, console.getY() + 25, 94, console.getHeight() - 25);
     }
     pianoGrid = {console.getX() + 56, console.getY() + 27, console.getWidth() - 66, console.getHeight() - 36};
+    velocity.setBounds(getWidth() - 230, console.getY() + 2, 210, 20);
+    velocity.setVisible(piano);
     refresh(false);
 }
 float ProStudio::beatX(double beat) const
@@ -743,11 +772,14 @@ void ProStudio::paint(juce::Graphics& g)
     }
     drawTimeline(g);
     label(g,
-          piano ? "PIANO ROLL / Click to draw, drag to move, right-click to delete"
+          piano ? "PIANO ROLL / Select note to edit velocity"
                 : "MIXER / Post-fader meters / Scroll to reveal channels",
-          {console.getX() + 10, console.getY() + 3, console.getWidth() - 20, 20}, 10, dim);
+          {console.getX() + 10, console.getY() + 3, console.getWidth() - (piano ? 240 : 20), 20}, 10, dim);
     if (piano)
+    {
+        label(g, "Velocity", {getWidth() - 288, console.getY() + 3, 56, 20}, 10, dim);
         drawPiano(g);
+    }
     if (cable >= 0)
     {
         auto r = row(cable);
@@ -825,13 +857,22 @@ void ProStudio::drawTimeline(juce::Graphics& g)
             g.drawVerticalLine(x, static_cast<float>(arrange.getY()),
                                static_cast<float>(arrange.getBottom()));
             if (b % 4 == 0)
-                label(g, juce::String(b / 4 + 1), {x + 5, ruler.getY() + 9, 60, 20}, 10, dim);
+                label(g, juce::String(b / 4 + 1), {x + 5, ruler.getY() + 7, 60, 11}, 9, dim);
         }
         auto loop = session.edit->getTransport().getLoopRange();
         int lx = static_cast<int>(beatX(session.beats(loop.getStart().inSeconds()))),
             rx = static_cast<int>(beatX(session.beats(loop.getEnd().inSeconds())));
-        g.setColour(session.edit->getTransport().looping ? blue : line);
+        g.setColour(session.edit->recordingPunchInOut      ? red
+                    : session.edit->getTransport().looping ? blue
+                                                           : line);
         g.fillRect(lx, ruler.getY() + 2, std::max(0, rx - lx), 5);
+        for (auto* marker : session.edit->getMarkerManager().getMarkers())
+        {
+            int mx = static_cast<int>(beatX(session.beats(marker->getPosition().getStart().inSeconds())));
+            g.setColour(blue);
+            g.fillRect(mx, ruler.getY() + 18, 3, 12);
+            label(g, marker->getName(), {mx + 5, ruler.getY() + 18, 90, 12}, 9, blue);
+        }
         for (int i = 0; i < list.size(); ++i)
         {
             auto r = row(i);
@@ -849,11 +890,34 @@ void ProStudio::drawTimeline(juce::Graphics& g)
                 g.setColour(c == selectedClip.get() ? ink : colour);
                 g.drawRoundedRectangle(bounds.toFloat(), 3, c == selectedClip.get() ? 1.5f : 0.7f);
                 label(g, c->getName(), bounds.reduced(7, 0).withHeight(18), 10, ink);
+                if (auto* audio = dynamic_cast<te::AudioClipBase*>(c))
+                {
+                    g.setColour(ink);
+                    g.fillRect(bounds.getX() + 4, bounds.getY() + 4, 5, 5);
+                    g.fillRect(bounds.getRight() - 9, bounds.getY() + 4, 5, 5);
+                    double duration = c->getPosition().getLength().inSeconds();
+                    float in = static_cast<float>(audio->getFadeIn().inSeconds() / duration *
+                                                  bounds.getWidth()),
+                          out = static_cast<float>(audio->getFadeOut().inSeconds() / duration *
+                                                   bounds.getWidth());
+                    g.setColour(ink.withAlpha(0.5f));
+                    g.drawLine(static_cast<float>(bounds.getX()), static_cast<float>(bounds.getBottom()),
+                               static_cast<float>(bounds.getX()) + in, static_cast<float>(bounds.getY()), 1);
+                    g.drawLine(static_cast<float>(bounds.getRight()) - out, static_cast<float>(bounds.getY()),
+                               static_cast<float>(bounds.getRight()), static_cast<float>(bounds.getBottom()),
+                               1);
+                }
                 juce::Graphics::ScopedSaveState clipState(g);
                 g.reduceClipRegion(visible.withTrimmedTop(18));
                 if (auto* wave = dynamic_cast<te::WaveAudioClip*>(c))
                 {
-                    auto file = wave->getOriginalFile();
+                    if (!wave->getOriginalFile().existsAsFile())
+                    {
+                        label(g, "MISSING AUDIO / Project > Relink", bounds.withTrimmedTop(22).reduced(6), 11,
+                              red);
+                        continue;
+                    }
+                    auto file = wave->getPlaybackFile().getFile();
                     auto key = file.getFullPathName();
                     auto& thumb = thumbs[key];
                     if (!thumb)
@@ -862,9 +926,15 @@ void ProStudio::drawTimeline(juce::Graphics& g)
                     auto p = c->getPosition();
                     g.setColour(colour.brighter(0.45f));
                     thumb->drawChannels(g, bounds.withTrimmedTop(20).reduced(2),
-                                        {te::TimePosition::fromSeconds(p.getOffset().inSeconds()),
-                                         te::TimePosition::fromSeconds(p.getOffset().inSeconds() +
-                                                                       p.getLength().inSeconds())},
+                                        {te::TimePosition::fromSeconds(wave->usesTimeStretchedProxy()
+                                                                           ? 0
+                                                                           : p.getOffset().inSeconds() *
+                                                                                 wave->getSpeedRatio()),
+                                         te::TimePosition::fromSeconds(
+                                             wave->usesTimeStretchedProxy()
+                                                 ? p.getLength().inSeconds()
+                                                 : (p.getOffset().inSeconds() + p.getLength().inSeconds()) *
+                                                       wave->getSpeedRatio())},
                                         0.8f);
                 }
                 else if (auto* midi = dynamic_cast<te::MidiClip*>(c))
@@ -959,6 +1029,13 @@ void ProStudio::drawPiano(juce::Graphics& g)
         g.fillRoundedRectangle(
             x, y + 1, std::max(3.0f, static_cast<float>(note->getLengthBeats().inBeats()) * unit - 1),
             height - 2, 2);
+        if (note->state == selectedNoteState)
+        {
+            g.setColour(ink);
+            g.drawRoundedRectangle(
+                x, y + 1, std::max(3.0f, static_cast<float>(note->getLengthBeats().inBeats()) * unit - 1),
+                height - 2, 2, 1);
+        }
     }
 }
 void ProStudio::pianoMouse(const juce::MouseEvent& e)
@@ -980,6 +1057,7 @@ void ProStudio::pianoMouse(const juce::MouseEvent& e)
         {
             if (e.mods.isRightButtonDown())
             {
+                selectedNoteState = juce::ValueTree{};
                 c->getSequence().removeNote(*n, &session.edit->getUndoManager());
                 repaint();
                 return;
@@ -994,6 +1072,8 @@ void ProStudio::pianoMouse(const juce::MouseEvent& e)
                                      noteVelocity, 0, &session.edit->getUndoManager());
     if (draggedNote)
     {
+        selectedNoteState = draggedNote->state;
+        velocity.setValue(draggedNote->getVelocity(), juce::dontSendNotification);
         noteStart = draggedNote->getStartBeat().inBeats();
         noteLength = draggedNote->getLengthBeats().inBeats();
         mouseStartBeat = beat;
@@ -1022,6 +1102,8 @@ void ProStudio::mouseDown(const juce::MouseEvent& e)
                 m.addItem(1, "Open editor");
                 m.addItem(2, "Bypass / enable");
                 m.addItem(3, "Remove");
+                m.addItem(4, "Move insert up");
+                m.addItem(5, "Move insert down");
                 m.showMenuAsync(juce::PopupMenu::Options{},
                                 [safe = juce::Component::SafePointer<ProStudio>(this), i](int id)
                                 {
@@ -1040,6 +1122,12 @@ void ProStudio::mouseDown(const juce::MouseEvent& e)
                                         safe->pluginWindow.reset();
                                         safe->session.removeEffect(safe->selectedTrack, i);
                                     }
+                                    if (id == 4 || id == 5)
+                                    {
+                                        safe->pluginWindow.reset();
+                                        safe->report(safe->session.reorderEffect(safe->selectedTrack, i,
+                                                                                 id == 4 ? -1 : 1));
+                                    }
                                     safe->refresh();
                                 });
             }
@@ -1048,6 +1136,16 @@ void ProStudio::mouseDown(const juce::MouseEvent& e)
     }
     if (ruler.contains(e.getPosition()))
     {
+        if (e.y >= ruler.getY() + 18)
+        {
+            for (auto* marker : session.edit->getMarkerManager().getMarkers())
+                if (std::abs(beatX(session.beats(marker->getPosition().getStart().inSeconds())) - e.x) < 9)
+                {
+                    session.seek(marker->getPosition().getStart().inSeconds());
+                    repaint();
+                    return;
+                }
+        }
         double beat = snapped(xBeat(static_cast<float>(e.x)));
         if (e.mods.isShiftDown())
             session.setLoop(beat, beat + 16);
@@ -1113,7 +1211,14 @@ void ProStudio::mouseDown(const juce::MouseEvent& e)
         mouseStartBeat = xBeat(static_cast<float>(e.x));
         auto bounds = clipBounds(*c);
         dragging = e.x > bounds.getRight() - 8 ? 2 : e.x < bounds.getX() + 8 ? 3 : 1;
-        session.begin("Move / trim region");
+        if (dynamic_cast<te::AudioClipBase*>(c) && e.y < bounds.getY() + 14)
+        {
+            if (e.x < bounds.getX() + 14)
+                dragging = 6;
+            else if (e.x > bounds.getRight() - 14)
+                dragging = 7;
+        }
+        session.begin(dragging >= 6 ? "Region fade" : "Move / trim region");
     }
 }
 void ProStudio::mouseDrag(const juce::MouseEvent& e)
@@ -1154,6 +1259,21 @@ void ProStudio::mouseDrag(const juce::MouseEvent& e)
     if (!selectedClip || dragging == 0)
         return;
     double delta = xBeat(static_cast<float>(e.x)) - mouseStartBeat;
+    if (dragging == 6 || dragging == 7)
+    {
+        if (auto* audio = dynamic_cast<te::AudioClipBase*>(selectedClip.get()))
+        {
+            double time = session.seconds(xBeat(static_cast<float>(e.x)));
+            double fade =
+                std::clamp(dragging == 6 ? time - dragStart : dragEnd - time, 0.0, dragEnd - dragStart);
+            if (dragging == 6)
+                audio->setFadeIn(te::TimeDuration::fromSeconds(fade));
+            else
+                audio->setFadeOut(te::TimeDuration::fromSeconds(fade));
+        }
+        repaint();
+        return;
+    }
     if (dragging == 1)
         selectedClip->setStart(
             te::TimePosition::fromSeconds(session.seconds(snapped(session.beats(dragStart) + delta))), false,
@@ -1183,11 +1303,30 @@ void ProStudio::mouseUp(const juce::MouseEvent& e)
         cable = -1;
         refresh();
     }
+    if (dragging == 1 && selectedClip && arrange.contains(e.getPosition()))
+    {
+        int destination = trackAt(e.y);
+        auto* target = session.track(destination);
+        if (target && selectedClip->getTrack() != target && selectedClip->moveTo(*target))
+        {
+            selectedTrack = destination;
+            refresh();
+        }
+    }
     dragging = 0;
     draggedNote = nullptr;
 }
 void ProStudio::mouseDoubleClick(const juce::MouseEvent& e)
 {
+    if (ruler.contains(e.getPosition()) && e.y >= ruler.getY() + 18)
+    {
+        for (auto* marker : session.edit->getMarkerManager().getMarkers())
+            if (std::abs(beatX(session.beats(marker->getPosition().getStart().inSeconds())) - e.x) < 9)
+            {
+                showMarkerDialog(marker->getMarkerID());
+                return;
+            }
+    }
     if (browser.contains(e.getPosition()))
     {
         int effect = e.y < 216 ? 0 : e.y < 250 ? 8 : 1 + (e.y - 283) / 30;
@@ -1383,10 +1522,12 @@ void ProStudio::popupMenu(int menu)
         m.addItem(203, "Save", true);
         m.addItem(204, "Save copy as...");
         m.addItem(205, "Recover last autosave");
+        m.addItem(219, "Find and relink missing audio...");
         m.addSeparator();
         m.addItem(206, "Export stereo WAV / 24-bit / 48 kHz...");
         m.addItem(207, "Export loudness-normalized WAV / -14 LUFS...");
         m.addItem(208, "Export individual channel stems...");
+        m.addItem(218, "Export options / WAV, FLAC, MIDI...");
     }
     if (menu == 101)
     {
@@ -1436,6 +1577,10 @@ void ProStudio::popupMenu(int menu)
                                     }
                                 });
                         }
+                        if (id == 218)
+                            safe->showExportDialog();
+                        if (id == 219)
+                            safe->showRelinkMenu();
                         if (id == 201)
                             safe->choose(1);
                         if (id == 202)
@@ -1750,6 +1895,8 @@ bool ProStudio::keyPressed(const juce::KeyPress& key)
 {
     auto mods = key.getModifiers();
     int code = key.getKeyCode();
+    if (code >= 'a' && code <= 'z')
+        code += 'A' - 'a';
     if (code == juce::KeyPress::spaceKey)
     {
         command(3);
@@ -1758,6 +1905,45 @@ bool ProStudio::keyPressed(const juce::KeyPress& key)
     if (code == juce::KeyPress::deleteKey || code == juce::KeyPress::backspaceKey)
     {
         command(14);
+        return true;
+    }
+    if (mods.isCommandDown() && code == 'C')
+    {
+        report(session.copyClip(selectedClip.get()));
+        return true;
+    }
+    if (mods.isCommandDown() && code == 'X')
+    {
+        dragging = 0;
+        draggedNote = nullptr;
+        auto r = session.copyClip(selectedClip.get(), true);
+        report(r);
+        if (r.wasOk())
+            selectedClip = nullptr;
+        refresh();
+        return true;
+    }
+    if (mods.isCommandDown() && code == 'V')
+    {
+        if (auto* clip = session.pasteClip(selectedTrack, session.position()))
+            select(selectedTrack, clip);
+        else
+            message.setText("Copy a region before pasting into a channel.", juce::dontSendNotification);
+        return true;
+    }
+    if (mods.isCommandDown() && code == 'M')
+    {
+        showMarkerDialog();
+        return true;
+    }
+    if (mods.isCommandDown() && mods.isShiftDown() && code == 'E')
+    {
+        showExportDialog();
+        return true;
+    }
+    if (code == 'Q' && !mods.isCommandDown())
+    {
+        showMidiEditor(1);
         return true;
     }
     if (mods.isCommandDown())
@@ -1812,7 +1998,9 @@ bool ProStudio::keyPressed(const juce::KeyPress& key)
     {
         juce::AlertWindow::showMessageBoxAsync(
             juce::MessageBoxIconType::InfoIcon, "Shortcuts",
-            "Space: play/stop\nR: record\nL: loop\nS: split clip at playhead\nCtrl+D: duplicate\nDelete: "
+            "Ctrl+C/X/V: copy/cut/paste region\nCtrl+M: marker\nQ: quantize\nCtrl+Shift+E: export "
+            "options\nSpace: play/stop\nR: record\nL: loop\nS: split clip at playhead\nCtrl+D: "
+            "duplicate\nDelete: "
             "delete clip\nCtrl+S: save\nCtrl+Z / Ctrl+Shift+Z: undo/redo\nShift-click ruler: set four-bar "
             "loop\nCtrl+wheel: zoom\nShift+wheel: scroll timeline\nAlt-click track lane: volume automation "
             "point\nPiano roll: click to draw, drag to move, Shift-drag to resize, right-click to remove");

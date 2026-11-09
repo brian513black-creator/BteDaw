@@ -14,6 +14,34 @@ struct HostBehaviour : te::EngineBehaviour
     }
     bool enableAudio;
 };
+struct RegionSettings
+{
+    juce::String name;
+    float gainDb = 0, pitchSemitones = 0;
+    double fadeInSeconds = 0.005, fadeOutSeconds = 0.005;
+    double lengthBeats = 0; // Zero preserves the current length.
+    bool reversed = false;
+};
+struct QuantizeSettings
+{
+    double gridBeats = 0.25;
+    float strength = 1, swing = 0;
+    bool noteEnds = false;
+};
+struct ExportSettings
+{
+    enum Format
+    {
+        wav,
+        flac,
+        midi
+    };
+    Format format = wav;
+    int sampleRate = 48000, bitDepth = 24;
+    bool mono = false, normalise = false, loopOnly = false;
+    float targetLufs = -14;
+    double tailSeconds = 2;
+};
 class Workstation
 {
   public:
@@ -35,6 +63,7 @@ class Workstation
     juce::Result open(const juce::File&);
     juce::Result recover();
     juce::Result exportWav(const juce::File&, bool normalise = false, bool loopOnly = false, int stem = -1);
+    juce::Result exportAudio(const juce::File&, const ExportSettings&, int stem = -1);
     juce::Result exportStems(const juce::File& folder);
     void autosave();
     void begin(const juce::String&);
@@ -71,6 +100,21 @@ class Workstation
     juce::Result split(te::Clip*);
     te::Clip* duplicate(te::Clip*);
     void deleteClip(te::Clip*);
+    juce::Result copyClip(te::Clip*, bool cut = false);
+    te::Clip* pasteClip(int track, double atSeconds);
+    juce::Result moveClip(te::Clip*, int destination, double atSeconds);
+    juce::Result editRegion(te::Clip*, const RegionSettings&);
+    juce::Result quantize(te::MidiClip*, const QuantizeSettings&);
+    juce::Result humanize(te::MidiClip*, double timingMs, int velocityRange, uint32_t seed);
+    juce::Result transpose(te::MidiClip*, int semitones);
+    juce::Result setVelocities(te::MidiClip*, int velocity);
+    std::vector<juce::File> missingMedia() const;
+    juce::Result relink(const juce::File& missing, const juce::File& replacement);
+    juce::Result findMedia(const juce::File& folder);
+    te::MarkerClip::Ptr addMarker(const juce::String&, double beat);
+    void seekMarker(bool next);
+    juce::Result transportSettings(double startBeat, double endBeat, bool loop, bool punch, int countInBars);
+    juce::Result reorderEffect(int track, int insert, int direction);
     void addChordProgression(int track, int bars = 4);
     int createDrumGroove(int bars = 4);
     juce::Result createDemo();
@@ -92,6 +136,7 @@ class Workstation
   private:
     juce::File workspace;
     juce::var pending;
+    juce::ValueTree clipboard;
     void installStrip(te::AudioTrack&);
     bool wouldFeedback(int source, int destination) const;
     te::Plugin::Ptr utility(int, const juce::String& role) const;

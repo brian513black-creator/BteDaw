@@ -8,7 +8,7 @@ A native **Windows 11 x64** music workstation built with C++20, JUCE and Trackti
 
 Open [Windows build and installer](https://github.com/brian513black-creator/BteDaw/actions/workflows/windows.yml). From a successful run, download and extract the **BTE-Studio-Windows-x64** artifact:
 
-- Run `BTE-Studio-0.2.0-Windows-x64.exe` to install the app and Start menu shortcut.
+- Run `BTE-Studio-0.3.0-Windows-x64.exe` to install the app and Start menu shortcut.
 - Or extract the portable ZIP and run `BTE Studio.exe`.
 - The executable uses a static Microsoft C runtime. End users do not need Visual Studio, CMake, JUCE, an API key, or a separate sound library.
 - The built-in 4OSC synth, original BTE percussion synth, and stock effects work offline. Third-party VST3 plugins remain separate installations.
@@ -30,11 +30,18 @@ For a blank session:
 4. Use the piano roll or imported MIDI to play instruments. Choose **Track → Create BTE drum instrument and groove** for a drum instrument and editable pattern without samples/downloads.
 5. Set channel levels, insert effects, route groups, then choose **Project → Export stereo WAV**.
 
+## New in 0.3
+
+The [DAW workflow research](docs/DAW_RESEARCH.md) compares accessible official Ardour, REAPER SDK and LMMS sources, records the gaps addressed here, and lists the major remaining work. New Region, MIDI and Transport menus expose the editing and session tools below.
+
 ## Editing and transport
 
 - Space toggles playback. Stop ends recording; `|<` stops and returns to zero. **Loop** and **Click** toggle loop playback and the metronome.
 - Click the ruler to seek. Shift-click it to set a four-bar loop; Mix can set the loop to the selected region.
-- Drag a region to move it horizontally. Drag its left/right edges to trim it non-destructively. **Split** cuts at the playhead; Duplicate and Delete act on the selected region. Edit can add short audio edge fades.
+- Drag a region to move it horizontally or drop it on another channel. Drag its lower left/right edges to trim it non-destructively; upper corner handles change audio fades. **Split** cuts at the playhead; Duplicate and Delete act on the selected region. Edit can add short audio edge fades.
+- **Region → Properties** edits name/length, audio gain, fade times, pitch and source reverse. Audio length changes use SoundTouch time stretch; MIDI length changes trim/extend its boundary. Ctrl+C/X/V copies/cuts/pastes a region at the playhead into the selected channel; media is copied into the destination session.
+- **MIDI** offers quantize (grid, strength, swing, note ends), timing/velocity humanize, transpose and bulk velocity. These operate on every note in the selected region. **Q** opens quantize. In the piano roll, select a note and adjust the velocity slider; its value also becomes the velocity for new notes.
+- **Transport** sets the loop/punch range and recording count-in (none, one or two bars). Punch records within that range. Count-in is a saved application preference. Ctrl+M adds a named location marker. The menu offers jump/edit/delete and next/previous navigation; double-click a ruler marker to rename or move it.
 - The Snap menu controls quarter-beat, beat, bar, or free positioning. Ctrl+wheel zooms; Shift+wheel scrolls horizontally; ordinary wheel scrolls tracks. A scrollbar also moves the timeline.
 - Double-click a MIDI region to open its piano roll. Click to draw notes, drag to move pitch/time, Shift-drag to change note length, and right-click to remove notes. Scroll the piano roll to change its displayed pitch range.
 - Undo/Redo uses the edit's undo history, including region edits, routing, gain staging and assistant edits.
@@ -47,7 +54,7 @@ For a blank session:
 - **+ Send** adds a post-fader auxiliary send and a return on the chosen destination. Its level is editable through the send's parameter editor. Sends keep the main route in parallel. Primary routes, sends and sidechains are checked together for feedback cycles.
 - Choose an insert, choose a sidechain source, then **Connect SC**. The effect must expose a sidechain input. The plugin may also require its own external-sidechain mode.
 - Double-click a library item to insert a built-in effect/instrument. **Browse VST3** loads a trusted 64-bit VST3 bundle. A bundle's first discovered class is loaded; all discovered classes are retained in the engine's known-plugin list.
-- Double-click an insert to open its native editor or parameter controls. Right-click for bypass or removal. The insert list scrolls with the inspector.
+- Double-click an insert to open its native editor or parameter controls. Right-click for bypass, removal or moving an insert up/down. Instruments and post-fader sends retain their processing positions. The insert list scrolls with the inspector.
 - Built-ins include 4OSC, BTE Drum Machine, EQ, compressor, reverb, delay, chorus, phaser and low-pass filter. The engine provides plugin delay compensation and graph processing.
 - **Mix → Auto level match** measures whole-region source RMS and sets input trims toward **-18 dBFS RMS**, limited by a **-1 dBFS source peak ceiling** and the trim range. This is gain staging, not perceptual LUFS or post-effect matching. Silence is unchanged. Faders remain unchanged; Undo restores trims.
 - **Automation** displays volume points. Alt-click a track lane to add a point. Mix can clear that channel's volume automation. Plugin parameters are exposed in their editors, but a full parameter-automation lane editor is not implemented.
@@ -56,9 +63,11 @@ For a blank session:
 
 Ctrl+S saves the current `.bte` session atomically. Save Copy exports a separate session and copies referenced audio into its `Media` folder without relocating the live recording session. External plugin sample libraries remain managed by their plugins.
 
+**Project → Relink missing media** lists unresolved paths and lets you choose a replacement or search a folder recursively by filename. Folder search skips ambiguous matches. Replacements are copied into the session, changes are undoable, and missing regions display a warning in the arrangement.
+
 The session stores MIDI, clips, routing, channel settings, tempo, automation, stock instrument settings and VST3 state. Autosave writes a recovery snapshot every 30 seconds when changed and not recording. Open the original session and choose **Project → Recover last autosave** to restore its snapshot. Closing with unsaved changes offers Save, Discard, or Cancel. Old JSON `.btedaw` prototype files are not migrated to the new engine format.
 
-Export writes **24-bit / 48 kHz stereo WAV**, including instruments and effects. The normalized option targets **-14 LUFS with a -1 dBTP ceiling** using the engine's loudness measurement. Individual channel/bus stems use an offline session copy, keep required input/sidechain/send dependencies, and bypass master processing. Stereo mix export includes master processing. Render cancellation or failure preserves an existing destination file.
+**Project → Export options** (Ctrl+Shift+E) offers WAV, FLAC and standard MIDI files. Audio supports 44.1/48/88.2/96/192 kHz, WAV 16/24/32-bit or FLAC 16/24-bit, mono/stereo, whole-session or loop range and a 0–30 second tail for whole-session audio. LUFS normalization has an editable target (-36 to -5). MIDI export writes notes and tempo without rendering instruments. The quick WAV command writes **24-bit / 48 kHz stereo WAV**, including instruments and effects. The normalized option targets **-14 LUFS with a -1 dBTP ceiling** using the engine's loudness measurement. Individual channel/bus stems use an offline session copy, keep required input/sidechain/send dependencies, and bypass master processing. Stereo mix export includes master processing. Render cancellation or failure preserves an existing destination file.
 
 ## Offline assistant
 
@@ -99,6 +108,6 @@ cpack --config build/CPackConfig.cmake -C Release -G ZIP
 
 ## Remaining release work
 
-Real Windows 11 interface/driver testing, long-session performance and stress tests, ASIO support, code signing, plugin scan/crash isolation, missing-media relinking, take comping, full automation-lane controls, broader export-format/options UI, advanced time/pitch editing, and LLM/generative AI are outstanding. The current app has a working core production workflow; it is not certified as a professional release and should not be described as having every feature of an established commercial DAW.
+Real Windows 11 interface/driver testing, long-session performance and stress tests, ASIO support, code signing, plugin scan/crash isolation, take comping, full automation-lane controls, advanced warp/crossfade editing, broader MIDI/expression workflows, and LLM/generative AI are outstanding. The current app has a working core production workflow; it is not certified as a professional release and should not be described as having every feature of an established commercial DAW.
 
 The repository's GPL-3.0 license covers BTE source. JUCE and Tracktion retain their own licenses. The Windows artifact includes dependency notices and corresponding source; see THIRD_PARTY.md before distribution.

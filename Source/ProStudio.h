@@ -38,6 +38,7 @@ class ProStudio final : public juce::Component,
     std::unique_ptr<juce::FileChooser> chooser;
     std::unique_ptr<juce::DocumentWindow> pluginWindow;
     juce::Component::SafePointer<juce::DialogWindow> audioWindow, assistantWindow;
+    juce::Component::SafePointer<juce::DialogWindow> regionWindow, midiWindow, exportWindow, transportWindow;
     juce::OwnedArray<juce::TextButton> buttons;
     juce::OwnedArray<ChannelStrip> channels;
     std::unique_ptr<ChannelStrip> masterStrip;
@@ -46,6 +47,9 @@ class ProStudio final : public juce::Component,
     juce::Label name, tempo, message;
     juce::ComboBox input, output, mode, sidechain, snap;
     juce::Slider trim, pan;
+    juce::Slider velocity;
+    juce::TextButton regionTools{"Region"}, midiTools{"MIDI"}, transportTools{"Transport"};
+    juce::ValueTree selectedNoteState;
     juce::ScrollBar horizontal{false};
     juce::TextButton addInsert{"+ Insert"}, vst{"Browse VST3"}, addSend{"+ Send"},
         connectSidechain{"Connect SC"};
@@ -84,5 +88,12 @@ class ProStudio final : public juce::Component,
     void pianoMouse(const juce::MouseEvent&);
     void updateInputMenu();
     void updateRoutes();
+    void workflowMenu(int);
+    void showRegionEditor();
+    void showMidiEditor(int mode = 1);
+    void showExportDialog();
+    void showTransportDialog();
+    void showRelinkMenu();
+    void showMarkerDialog(int markerID = -1);
 };
 } // namespace bte

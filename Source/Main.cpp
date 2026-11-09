@@ -8,7 +8,7 @@ class BteApplication final : public juce::JUCEApplication
     }
     const juce::String getApplicationVersion() override
     {
-        return "0.2.0";
+        return "0.3.0";
     }
     void initialise(const juce::String& commandLine) override
     {

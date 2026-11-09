@@ -4,6 +4,38 @@ namespace bte
 {
 namespace
 {
+class TestStorage final : public te::PropertyStorage
+{
+  public:
+    explicit TestStorage(juce::File directory)
+        : PropertyStorage("BTE Studio Tests"), root(std::move(directory))
+    {
+    }
+    juce::File getAppPrefsFolder() override
+    {
+        auto f = root.getChildFile("Settings");
+        f.createDirectory();
+        return f;
+    }
+    juce::File getAppCacheFolder() override
+    {
+        auto f = root.getChildFile("Cache");
+        f.createDirectory();
+        return f;
+    }
+
+  private:
+    juce::File root;
+};
+std::unique_ptr<te::PropertyStorage> storage(bool audio, const juce::File& root)
+{
+    if (audio)
+        return std::make_unique<te::PropertyStorage>("BTE Studio");
+    return std::make_unique<TestStorage>(root == juce::File{}
+                                             ? juce::File::getSpecialLocation(juce::File::tempDirectory)
+                                                   .getNonexistentChildFile("bte-test-state", "", false)
+                                             : root);
+}
 class HostUI : public te::UIBehaviour
 {
   public:
@@ -35,6 +67,34 @@ class HostUI : public te::UIBehaviour
         juce::Logger::writeToLog(title + ": " + message);
     }
 };
+class ReverseSource final : public te::ThreadPoolJobWithProgress
+{
+  public:
+    ReverseSource(te::Engine& e, juce::File in, juce::File out)
+        : ThreadPoolJobWithProgress("Preparing reversed source"), engine(e), source(std::move(in)),
+          destination(std::move(out))
+    {
+    }
+    JobStatus runJob() override
+    {
+        success = te::AudioFileUtils::reverse(engine, source, destination, progress, this);
+        return jobHasFinished;
+    }
+    float getCurrentTaskProgress() override
+    {
+        return progress.load();
+    }
+    bool canCancel() const override
+    {
+        return true;
+    }
+    bool success = false;
+
+  private:
+    te::Engine& engine;
+    juce::File source, destination;
+    std::atomic<float> progress{0};
+};
 juce::Result fail(const juce::String& s)
 {
     return juce::Result::fail(s);
@@ -49,8 +109,7 @@ te::TimeDuration td(double s)
 }
 } // namespace
 Workstation::Workstation(bool audio, juce::File root)
-    : engine(audio ? "BTE Studio" : "BTE Studio Tests", std::make_unique<HostUI>(),
-             std::make_unique<HostBehaviour>(audio))
+    : engine(storage(audio, root), std::make_unique<HostUI>(), std::make_unique<HostBehaviour>(audio))
 {
     workspace = root == juce::File{} ? juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
                                            .getChildFile("BTE Studio/Sessions")
@@ -749,9 +808,8 @@ te::Clip* Workstation::duplicate(te::Clip* c)
     if (!c)
         return nullptr;
     begin("Duplicate region");
-    auto state = c->state.createCopy();
-    state.removeProperty(te::IDs::id, nullptr);
-    auto* copy = dynamic_cast<te::ClipTrack*>(c->getTrack())->insertClipWithState(state);
+    auto* copy = te::insertClipCopy(*dynamic_cast<te::ClipTrack*>(c->getTrack()),
+                                    te::ClipCopy::fromClip(*c).withNewItemID(*edit));
     if (copy)
         copy->setStart(c->getPosition().getEnd(), false, true);
     return copy;
@@ -847,11 +905,61 @@ juce::Result Workstation::createDemo()
 }
 juce::Result Workstation::exportWav(const juce::File& file, bool normalise, bool loopOnly, int stem)
 {
+    ExportSettings settings;
+    settings.normalise = normalise;
+    settings.loopOnly = loopOnly;
+    return exportAudio(file, settings, stem);
+}
+juce::Result Workstation::exportAudio(const juce::File& file, const ExportSettings& settings, int stem)
+{
+    const std::array<int, 5> rates{44100, 48000, 88200, 96000, 192000};
+    if (settings.format < ExportSettings::wav || settings.format > ExportSettings::midi ||
+        std::find(rates.begin(), rates.end(), settings.sampleRate) == rates.end() ||
+        (settings.bitDepth != 16 && settings.bitDepth != 24 && settings.bitDepth != 32) ||
+        (settings.format == ExportSettings::flac && settings.bitDepth == 32) ||
+        !std::isfinite(settings.tailSeconds) || settings.tailSeconds < 0 || settings.tailSeconds > 30 ||
+        !std::isfinite(settings.targetLufs) || settings.targetLufs < -36 || settings.targetLufs > -5)
+        return fail("Unsupported export format, sample rate, depth, tail or loudness target");
     stop();
     if (edit->getLength().inSeconds() <= 0)
         return fail("Session has no clips to render");
     edit->flushState();
-    te::Edit::Options options{engine, edit->state.createCopy(), {}};
+    auto renderState = edit->state.createCopy();
+    std::vector<std::unique_ptr<juce::TemporaryFile>> preparedSources;
+    juce::ScopeGuard releasePrepared(
+        [&]
+        {
+            for (auto& source : preparedSources)
+                engine.getAudioFileManager().releaseFile(te::AudioFile(engine, source->getFile()));
+        });
+    // Rendering edits disable the background source jobs used by reverse playback.
+    // Prepare reversed source data explicitly in the offline snapshot, preserving live state.
+    if (settings.format != ExportSettings::midi)
+        for (auto* t : tracks())
+            for (auto* c : t->getClips())
+                if (auto* wave = dynamic_cast<te::WaveAudioClip*>(c); wave && wave->getIsReversed())
+                {
+                    auto temp = std::make_unique<juce::TemporaryFile>(".wav");
+                    ReverseSource job(engine, wave->getOriginalFile(), temp->getFile());
+                    engine.getUIBehaviour().runTaskWithProgressBar(job);
+                    if (!job.success || job.shouldExit())
+                        return fail(
+                            "Reversed source preparation failed or was cancelled; previous output preserved");
+                    std::function<void(juce::ValueTree)> replace = [&](juce::ValueTree node)
+                    {
+                        if (node.getProperty(te::IDs::id) == wave->state.getProperty(te::IDs::id))
+                        {
+                            node.setProperty(te::IDs::source, temp->getFile().getFullPathName(), nullptr);
+                            node.setProperty(te::IDs::isReversed, false, nullptr);
+                            return;
+                        }
+                        for (auto child : node)
+                            replace(child);
+                    };
+                    replace(renderState);
+                    preparedSources.push_back(std::move(temp));
+                }
+    te::Edit::Options options{engine, renderState, {}};
     options.role = te::Edit::forRendering;
     options.numAudioTracks = 0;
     options.editFileRetriever = [file = projectFile] { return file; };
@@ -888,21 +996,29 @@ juce::Result Workstation::exportWav(const juce::File& file, bool normalise, bool
     }
     te::Renderer::Parameters p(*renderEdit);
     juce::WavAudioFormat format;
+    juce::FlacAudioFormat flac;
     juce::TemporaryFile temp(file);
     p.destFile = temp.getFile();
-    p.audioFormat = &format;
-    p.bitDepth = 24;
-    p.sampleRateForAudio = 48000;
-    p.usePlugins = true;
+    p.audioFormat = settings.format == ExportSettings::midi   ? nullptr
+                    : settings.format == ExportSettings::flac ? static_cast<juce::AudioFormat*>(&flac)
+                                                              : &format;
+    p.createMidiFile = settings.format == ExportSettings::midi;
+    p.bitDepth = settings.bitDepth;
+    p.sampleRateForAudio = settings.sampleRate;
+    p.usePlugins = settings.format != ExportSettings::midi;
     p.useMasterPlugins = stem < 0;
-    p.time = loopOnly ? edit->getTransport().getLoopRange()
-                      : te::TimeRange{tp(0), tp(edit->getLength().inSeconds() + 2)};
+    p.time =
+        settings.loopOnly
+            ? edit->getTransport().getLoopRange()
+            : te::TimeRange{tp(0), tp(edit->getLength().inSeconds() +
+                                      (settings.format == ExportSettings::midi ? 0 : settings.tailSeconds))};
     p.tracksToDo = te::toBitSet(te::getAllTracks(*renderEdit));
-    p.shouldNormaliseByLUFS = normalise;
-    p.normaliseToLevelDb = -14;
+    p.shouldNormaliseByLUFS = settings.normalise && settings.format != ExportSettings::midi;
+    p.normaliseToLevelDb = settings.targetLufs;
     p.limitTruePeak = true;
     p.truePeakCeilingDb = -1;
-    p.canRenderInMono = false;
+    p.canRenderInMono = settings.mono;
+    p.mustRenderInMono = settings.mono;
     p.tracksToProcessWhileMuted = silentSources;
     if (stem >= 0)
     {
