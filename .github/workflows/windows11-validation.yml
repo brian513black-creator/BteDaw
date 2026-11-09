@@ -1,0 +1,74 @@
+name: Windows 11 validation
+
+# This job executes on a user-owned PC. It must never run automatically for PRs.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows11-daw-validation
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: powershell
+
+jobs:
+  windows11:
+    runs-on: [self-hosted, Windows, X64, windows11-daw]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Windows 11, interactive desktop and build prerequisites
+        run: |
+          ./scripts/windows11-preflight.ps1 -ReportDirectory reports/windows11
+          $report = Get-Content reports/windows11/windows11-preflight.json -Raw | ConvertFrom-Json
+          $report.buildTools.nsisDirectory | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Configure Windows x64
+        run: cmake -S . -B build-win11 -A x64 -DBTE_BUILD_APP=ON -DBUILD_TESTING=ON
+      - name: Build application and VST3 test fixture
+        run: cmake --build build-win11 --config Release --parallel 2
+      - name: Run automated engine and workstation checks on Windows 11
+        run: ctest --test-dir build-win11 -C Release --output-on-failure
+      - name: Check native application startup and clean shutdown
+        run: ./scripts/windows-smoke.ps1 -Executable 'build-win11/BteDaw_artefacts/Release/BTE Studio.exe'
+      - name: Package installer and portable application
+        working-directory: build-win11
+        run: |
+          cpack -C Release -G NSIS
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cpack -C Release -G ZIP
+      - name: Package corresponding source and checksums
+        run: |
+          $sourceDirectory = Join-Path $env:RUNNER_TEMP "bte-win11-source-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          New-Item $sourceDirectory -ItemType Directory -Force | Out-Null
+          git archive HEAD -o "$sourceDirectory/BteDaw-source.zip"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item build-win11/_deps/juce-src "$sourceDirectory/JUCE" -Recurse
+          Copy-Item build-win11/_deps/tracktion-src "$sourceDirectory/TracktionEngine" -Recurse
+          Compress-Archive -Path "$sourceDirectory/*" -DestinationPath build-win11/BTE-Studio-corresponding-source.zip -Force
+          Get-ChildItem build-win11 -File | Where-Object Extension -In '.exe','.zip' | ForEach-Object {
+            $hash = Get-FileHash $_.FullName -Algorithm SHA256
+            "$($hash.Hash.ToLower())  $($_.Name)"
+          } | Set-Content build-win11/SHA256SUMS.txt
+      - name: Record the limits of this automated run
+        run: |
+          'Automated Windows 11 build, engine, startup and packaging checks passed.' | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          'Physical audio/MIDI, third-party VST3, installer acceptance and long-session performance still require recorded manual results. This job does not certify a professional release.' | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BTE-Studio-Windows11-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            build-win11/BTE*.exe
+            build-win11/BTE*.zip
+            build-win11/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Windows11-validation-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            reports/windows11/
+            build-win11/Testing/Temporary/

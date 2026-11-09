@@ -2,6 +2,8 @@
 
 A cloud/Linux test pass or a Windows Server CI run does not establish Windows 11 hardware readiness. Before labelling a build a Windows 11 release, retain evidence of these checks on actual Windows 11 x64 machines.
 
+Use [Windows 11 runner setup](WINDOWS11_RUNNER.md) to connect a PC and execute the automated portion. A green workflow run does not replace the physical-device and manual acceptance checks below.
+
 - Install the produced NSIS executable on a clean machine without development tools, start it from the Start menu, and uninstall it. Also run the portable ZIP as a standard user. Confirm dependency/source license material is present.
 - Verify startup at 100%, 125%, 150% and 200% display scaling, including a 1280×720 logical work area, multiple displays, native VST3 editors and window resizing.
 - Play and export the bundled example. Open the WAV in another audio application and confirm stereo audio, expected duration, 48 kHz / 24-bit encoding and headroom.

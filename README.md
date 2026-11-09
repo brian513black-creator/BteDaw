@@ -16,6 +16,8 @@ Open [Windows build and installer](https://github.com/brian513black-creator/BteD
 
 The installer is unsigned. The workflow builds the app and test VST3, tests the engine, starts the native application, packages NSIS/portable outputs, and checks silent installation, installed-app startup, and uninstallation. It also uploads corresponding source and SHA-256 checksums. It does not publish a GitHub release.
 
+To run validation on your own Windows 11 PC, follow [Windows 11 runner setup](docs/WINDOWS11_RUNNER.md). Its separate validation workflow runs only when manually started and requires the `windows11-daw` runner label.
+
 ## Start making music
 
 Choose **Project → Create playable built-in demo session** for an original six-channel example: keys, bass, arpeggio, synthesized drums, a reverb return, and a music bus. It creates real editable MIDI regions, routing and effects, saves the session in Documents/BTE Studio/Sessions, and can play, loop and export without additional content.
